@@ -176,8 +176,8 @@ def main():
                 ]
         lines += [
             "━━━━━━━━━━━━━━━━━━━━━",
-            "🔍 Tu dong kiem tra moi <b>5 phut</b>",
-            "🔔 Bot se thong bao ngay khi gia thay doi!",
+            "🔍 Tự động kiểm tra mới sau <b>5 phut</b>",
+            "🔔 Bot sẽ thông báo ngay khi giá thay đổi!",
         ]
         gui_telegram("\n".join(lines), label)
     else:
