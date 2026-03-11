@@ -1,0 +1,41 @@
+name: Gold Price Bot
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # Chạy mỗi 5 phút
+  workflow_dispatch:          # Cho phép chạy thủ công
+
+jobs:
+  check-price:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Restore price state
+        uses: actions/cache@v3
+        with:
+          path: price_state.json
+          key: price-state-${{ github.run_id }}
+          restore-keys: price-state-
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run bot
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: python bot.py
+
+      - name: Save price state
+        uses: actions/cache/save@v3
+        with:
+          path: price_state.json
+          key: price-state-${{ github.run_id }}
