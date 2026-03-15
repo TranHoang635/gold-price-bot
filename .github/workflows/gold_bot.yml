@@ -2,8 +2,8 @@ name: Gold Price Bot
 
 on:
   schedule:
-    - cron: '*/5 * * * *'   # Chạy mỗi 5 phút
-  workflow_dispatch:          # Cho phép chạy thủ công
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
 
 jobs:
   check-price:
@@ -14,14 +14,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Restore price state
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: price_state.json
           key: price-state-${{ github.run_id }}
           restore-keys: price-state-
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -35,7 +35,7 @@ jobs:
         run: python bot.py
 
       - name: Save price state
-        uses: actions/cache/save@v3
+        uses: actions/cache/save@v4
         with:
           path: price_state.json
           key: price-state-${{ github.run_id }}
