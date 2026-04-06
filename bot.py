@@ -34,7 +34,9 @@ def get_session():
     adapter = HTTPAdapter(max_retries=retry)
     session.mount("http://", adapter)
     session.mount("https://", adapter)
-    session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+    })
     return session
 
 def lay_gia_vang():
@@ -44,18 +46,23 @@ def lay_gia_vang():
         res.raise_for_status()
         text = res.text
 
+        # Lấy thời gian cập nhật
         m_time = re.search(r'Cập nhật lúc:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})', text)
         update_time = m_time.group(1) if m_time else None
 
         gia = {}
         for loai in LOAI_VANG:
             ten = loai["ten"]
+            # Regex cải tiến
             pat = re.escape(ten) + r'[\s\S]*?(\d{1,3}(?:\.\d{3})+)\s*[\s\S]*?(\d{1,3}(?:\.\d{3})+)'
             match = re.search(pat, text, re.DOTALL | re.IGNORECASE)
             if match:
                 mua = int(match.group(1).replace('.', ''))
                 ban = int(match.group(2).replace('.', ''))
                 gia[ten] = {"gia_mua": mua, "gia_ban": ban}
+            else:
+                print(f"  Không tìm thấy: {ten}")
+
         return gia, update_time
     except Exception as e:
         print(f"  Lỗi scrape: {e}")
