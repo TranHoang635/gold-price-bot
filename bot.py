@@ -51,17 +51,18 @@ def lay_gia_vang():
         gia = {}
         for loai in LOAI_VANG:
             ten = loai["ten"]
-            # Regex mới: hỗ trợ cả 15.200.000 và 3.040.000
-            pat = re.escape(ten) + r'[\s\S]*?(\d{1,3}(?:\.\d{3})+)\s*(\d{1,3}(?:\.\d{3})+)'
+            # Regex mới - tìm theo dòng sản phẩm
+            pat = re.escape(ten) + r'[\s\S]*?(\d{1,3}(?:\.\d{3})+)\s*[\s\S]*?(\d{1,3}(?:\.\d{3})+)'
             match = re.search(pat, text, re.DOTALL | re.IGNORECASE)
             if match:
-                mua_str = match.group(1).replace('.', '')
-                ban_str = match.group(2).replace('.', '')
-                mua = int(mua_str)
-                ban = int(ban_str)
+                mua = int(match.group(1).replace('.', ''))
+                ban = int(match.group(2).replace('.', ''))
                 gia[ten] = {"gia_mua": mua, "gia_ban": ban}
             else:
                 print(f"  Không tìm thấy: {ten}")
+
+        if not gia:
+            print("  Không tìm thấy bất kỳ giá nào")
         return gia, update_time
     except Exception as e:
         print(f"  Lỗi scrape: {e}")
