@@ -1,9 +1,11 @@
 """
 Bot Telegram Giá Vàng - Quốc Bảo Lâm
-Phiên bản GitHub Actions
+Phiên bản scrape giavangmaothiet.com + retry DNS
 """
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import re
 import json
 import os
@@ -14,82 +16,66 @@ CHAT_ID   = os.environ.get("CHAT_ID", "")
 
 STATE_FILE = "price_state.json"
 
-# Múi giờ Việt Nam (UTC+7)
 VN_TZ = timezone(timedelta(hours=7))
 
 LOAI_VANG = [
-    {"id": 2, "ten": "Vàng 9999 - 24K"},
-    {"id": 3, "ten": "Vàng 23K"},
-    {"id": 4, "ten": "Vàng 16K"},
+    {"ten": "Vàng 9999 Quốc Bảo Lâm"},
+    {"ten": "Vàng 98 Quốc Bảo Lâm"},
+    {"ten": "Vàng QBL 98%"},
+    {"ten": "Vàng QBL 75% 18k"},
+    {"ten": "Vàng QBL 610"},
 ]
 
-API_URL = "https://quocbaolam.com/api/bieudo.php"
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Referer": "https://quocbaolam.com/gia-vang",
-    "Origin": "https://quocbaolam.com",
-    "Content-Type": "application/x-www-form-urlencoded",
-}
+URL = "https://giavangmaothiet.com/gia-vang-quoc-bao-lam-hom-nay/"
 
+def get_session():
+    session = requests.Session()
+    retry = Retry(total=5, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+    return session
 
-def lay_gia_vang(loai_id, thang, nam):
+def lay_gia_vang():
     try:
-        res = requests.post(
-            API_URL,
-            data={"id": loai_id, "month": thang, "year": nam},
-            headers=HEADERS,
-            timeout=10,
-        )
+        session = get_session()
+        res = session.get(URL, timeout=15)
         res.raise_for_status()
-        match = re.search(r"var CHARTS\s*=\s*(\{.*?\});", res.text, re.DOTALL)
-        if not match:
-            return None
-        charts = json.loads(match.group(1))
-        ngay_idx = datetime.now(VN_TZ).day - 1
-        gia_mua = charts["price1"][ngay_idx]
-        gia_ban = charts["price"][ngay_idx]
-        while ngay_idx > 0 and (gia_mua == 0 or gia_ban == 0):
-            ngay_idx -= 1
-            gia_mua = charts["price1"][ngay_idx]
-            gia_ban = charts["price"][ngay_idx]
-        return {"gia_mua": gia_mua, "gia_ban": gia_ban}
-    except Exception as e:
-        print(f"  Lỗi khi lấy id={loai_id}: {e}")
-        return None
+        text = res.text
 
+        m_time = re.search(r'Cập nhật lúc:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})', text)
+        update_time = m_time.group(1) if m_time else None
+
+        gia = {}
+        for loai in LOAI_VANG:
+            ten = loai["ten"]
+            pat = re.escape(ten) + r'[\s\S]*?(\d{1,3}\.\d{3}\.\d{3})\s*(\d{1,3}\.\d{3}\.\d{3})'
+            match = re.search(pat, text, re.DOTALL)
+            if match:
+                mua = int(match.group(1).replace('.', ''))
+                ban = int(match.group(2).replace('.', ''))
+                gia[ten] = {"gia_mua": mua, "gia_ban": ban}
+        return gia, update_time
+    except Exception as e:
+        print(f"  Lỗi scrape: {e}")
+        return {}, None
 
 def fmt(so):
     return f"{so:,}".replace(",", ".") + "₫"
 
-
 def xu_huong(moi, cu):
-    if moi > cu:
-        return f"📈 +{fmt(moi - cu)}"
-    elif moi < cu:
-        return f"📉 -{fmt(cu - moi)}"
+    if moi > cu: return f"📈 +{fmt(moi - cu)}"
+    if moi < cu: return f"📉 -{fmt(cu - moi)}"
     return "➡️ Không đổi"
-
 
 def gui_telegram(tin_nhan, label=""):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     try:
-        res = requests.post(url, json={
-            "chat_id": CHAT_ID,
-            "text": tin_nhan,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True,
-        }, timeout=10)
-        data = res.json()
-        if data.get("ok"):
-            print(f"  Đã gửi Telegram [{label}]")
-            return True
-        else:
-            print(f"  Telegram lỗi: {data.get('description')}")
-            return False
-    except Exception as e:
-        print(f"  Lỗi gửi Telegram: {e}")
+        res = requests.post(url, json={"chat_id": CHAT_ID, "text": tin_nhan, "parse_mode": "HTML", "disable_web_page_preview": True}, timeout=10)
+        return res.json().get("ok", False)
+    except:
         return False
-
 
 def doc_gia_cu():
     try:
@@ -100,47 +86,44 @@ def doc_gia_cu():
         pass
     return {}
 
-
 def luu_gia_moi(state):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f)
 
-
 def main():
-    # Luôn dùng giờ Việt Nam
     now = datetime.now(VN_TZ)
-    thang, nam = now.month, now.year
-    gio = now.hour
-
     print(f"[{now.strftime('%H:%M:%S')} ICT] Đang kiểm tra giá vàng...")
 
+    gia_moi, update_time = lay_gia_vang()
+    if not gia_moi:
+        print("  Không lấy được dữ liệu")
+        return
+
     gia_cu = doc_gia_cu()
-    gia_moi = {}
     thay_doi = []
     co_gia_cu = len(gia_cu) > 0
 
     for loai in LOAI_VANG:
-        data = lay_gia_vang(loai["id"], thang, nam)
-        if not data or data["gia_mua"] == 0:
+        ten = loai["ten"]
+        data = gia_moi.get(ten)
+        if not data:
             continue
-        gia_moi[str(loai["id"])] = data
-        cu = gia_cu.get(str(loai["id"]))
-
+        cu = gia_cu.get(ten)
         if co_gia_cu and cu and (data["gia_mua"] != cu["gia_mua"] or data["gia_ban"] != cu["gia_ban"]):
-            thay_doi.append({"ten": loai["ten"], "moi": data, "cu": cu})
-            print(f"  [{loai['ten']}] THAY ĐỔI!")
+            thay_doi.append({"ten": ten, "moi": data, "cu": cu})
+            print(f"  [{ten}] THAY ĐỔI!")
         else:
-            print(f"  [{loai['ten']}] Mua: {fmt(data['gia_mua'])} | Bán: {fmt(data['gia_ban'])}")
+            print(f"  [{ten}] Mua: {fmt(data['gia_mua'])} | Bán: {fmt(data['gia_ban'])}")
 
     luu_gia_moi(gia_moi)
 
-    # === 1. Gửi cảnh báo nếu giá thay đổi ===
     if thay_doi:
         lines = [
             "🚨 <b>CẢNH BÁO: GIÁ VÀNG VỪA THAY ĐỔI!</b>",
             f"⏰ {now.strftime('%H:%M - %d/%m/%Y')} (Giờ VN)",
+            f"📌 Cập nhật lúc: {update_time or 'N/A'}",
             "━━━━━━━━━━━━━━━━━━━━━",
-            "",
+            ""
         ]
         for item in thay_doi:
             moi, cu, ten = item["moi"], item["cu"], item["ten"]
@@ -148,45 +131,43 @@ def main():
                 f"💎 <b>{ten}</b>",
                 f"  Mua: {fmt(cu['gia_mua'])} → <b>{fmt(moi['gia_mua'])}</b>  {xu_huong(moi['gia_mua'], cu['gia_mua'])}",
                 f"  Bán: {fmt(cu['gia_ban'])} → <b>{fmt(moi['gia_ban'])}</b>  {xu_huong(moi['gia_ban'], cu['gia_ban'])}",
-                "",
+                ""
             ]
         lines += [
             "━━━━━━━━━━━━━━━━━━━━━",
-            '🔗 <a href="https://quocbaolam.com/gia-vang">Xem chi tiết</a>',
-            "📞 Hotline: 077 939 7939",
+            '🔗 <a href="https://giavangmaothiet.com/gia-vang-quoc-bao-lam-hom-nay/">Xem chi tiết</a>',
+            "📞 Hotline: 077 939 7939"
         ]
         gui_telegram("\n".join(lines), "cảnh báo thay đổi")
 
-    # === 2. Gửi bản tin lúc đúng 8h/12h/17h giờ VN ===
-    elif gio in [8, 12, 17]:
+    elif now.hour in [8, 12, 17]:
         lines = [
             "🏅 <b>GIÁ VÀNG QUỐC BẢO LÂM</b>",
             f"📅 {now.strftime('%H:%M - %d/%m/%Y')} (Giờ VN)",
+            f"📌 Cập nhật lúc: {update_time or 'N/A'}",
             "━━━━━━━━━━━━━━━━━━━━━",
             "",
             "📌 <b>Giá hiện tại:</b>",
-            "",
+            ""
         ]
         for loai in LOAI_VANG:
-            data = gia_moi.get(str(loai["id"]))
-            if data and data["gia_mua"] > 0:
+            data = gia_moi.get(loai["ten"])
+            if data:
                 lines += [
                     f"💰 <b>{loai['ten']}</b>",
                     f"  🟢 Mua: <code>{fmt(data['gia_mua'])}</code>",
                     f"  🔴 Bán: <code>{fmt(data['gia_ban'])}</code>",
-                    "",
+                    ""
                 ]
         lines += [
             "━━━━━━━━━━━━━━━━━━━━━",
-            '🔗 <a href="https://quocbaolam.com/gia-vang">quocbaolam.com/gia-vang</a>',
-            "📞 Hotline: 077 939 7939",
+            '🔗 <a href="https://giavangmaothiet.com/gia-vang-quoc-bao-lam-hom-nay/">giavangmaothiet.com</a>',
+            "📞 Hotline: 077 939 7939"
         ]
-        gui_telegram("\n".join(lines), f"bản tin {gio}h")
+        gui_telegram("\n".join(lines), f"bản tin {now.hour}h")
 
-    # === 3. Giá không đổi, không gửi ===
     else:
-        print(f"  Giá không đổi, không gửi Telegram.")
-
+        print("  Giá không đổi, không gửi.")
 
 if __name__ == "__main__":
     main()
