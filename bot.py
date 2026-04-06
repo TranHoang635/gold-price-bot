@@ -1,6 +1,6 @@
 """
 Bot Telegram Giá Vàng - Quốc Bảo Lâm
-Phiên bản mới: chỉ gửi khi thay đổi + luôn gửi tin "đã chạy"
+Chỉ gửi khi giá thay đổi hoặc chạy manual
 """
 
 import requests
@@ -44,25 +44,18 @@ def lay_gia_vang():
         res.raise_for_status()
         text = res.text
 
-        # Lấy thời gian cập nhật
         m_time = re.search(r'Cập nhật lúc:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})', text)
         update_time = m_time.group(1) if m_time else None
 
         gia = {}
         for loai in LOAI_VANG:
             ten = loai["ten"]
-            # Regex mới - tìm theo dòng sản phẩm
             pat = re.escape(ten) + r'[\s\S]*?(\d{1,3}(?:\.\d{3})+)\s*[\s\S]*?(\d{1,3}(?:\.\d{3})+)'
             match = re.search(pat, text, re.DOTALL | re.IGNORECASE)
             if match:
                 mua = int(match.group(1).replace('.', ''))
                 ban = int(match.group(2).replace('.', ''))
                 gia[ten] = {"gia_mua": mua, "gia_ban": ban}
-            else:
-                print(f"  Không tìm thấy: {ten}")
-
-        if not gia:
-            print("  Không tìm thấy bất kỳ giá nào")
         return gia, update_time
     except Exception as e:
         print(f"  Lỗi scrape: {e}")
@@ -120,16 +113,7 @@ def main():
 
     luu_gia_moi(gia_moi)
 
-    # === 1. Luôn gửi tin "Bot đã chạy" ===
-    status = "✅ Bot đã chạy - Giá không thay đổi" if not thay_doi else "✅ Bot đã chạy - Phát hiện thay đổi (xem cảnh báo)"
-    lines_status = [
-        status,
-        f"⏰ {now.strftime('%H:%M:%S')} ICT",
-        f"📌 Cập nhật lúc: {update_time or 'N/A'}"
-    ]
-    gui_telegram("\n".join(lines_status))
-
-    # === 2. Nếu có thay đổi thì gửi thêm cảnh báo đầy đủ ===
+    # Chỉ gửi tin nhắn khi có thay đổi giá
     if thay_doi:
         lines = [
             "🚨 <b>CẢNH BÁO: GIÁ VÀNG VỪA THAY ĐỔI!</b>",
@@ -152,6 +136,9 @@ def main():
             "📞 Hotline: 077 939 7939"
         ]
         gui_telegram("\n".join(lines))
+        print("  Đã gửi cảnh báo thay đổi giá")
+    else:
+        print("  Giá không thay đổi, không gửi tin nhắn")
 
 if __name__ == "__main__":
     main()
